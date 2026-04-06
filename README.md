@@ -1,4 +1,6 @@
-# Rememnosyne
+#     RemeMnemosyne
+
+
 
 A high-performance agentic memory engine for LLM agents with unified memory coordination.
 
