@@ -2,11 +2,13 @@ pub mod entity;
 pub mod relationship;
 pub mod store;
 pub mod traversal;
+pub mod entity_resolution;
 
 pub use entity::*;
 pub use relationship::*;
 pub use store::*;
 pub use traversal::*;
+pub use entity_resolution::*;
 
 #[cfg(test)]
 mod tests {

@@ -2,9 +2,15 @@ pub mod turboquant;
 pub mod index;
 pub mod store;
 
+#[cfg(feature = "sharding")]
+pub mod sharding;
+
 pub use turboquant::*;
 pub use index::*;
 pub use store::*;
+
+#[cfg(feature = "sharding")]
+pub use sharding::*;
 
 #[cfg(test)]
 mod tests {

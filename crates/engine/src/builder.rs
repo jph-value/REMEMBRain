@@ -285,28 +285,28 @@ impl RememnosyneEngine {
 fn create_storage_backend(config: &RememnosyneConfig) -> Result<Arc<dyn StorageBackend + Send + Sync>> {
     let storage_path = format!("{}/data", config.data_dir);
 
-    #[cfg(feature = "persistence")]
+    // Priority: sled (pure Rust) is default, RocksDB is opt-in
+    // This ensures pure Rust deployment by default
+    
+    #[cfg(feature = "sled-storage")]
     {
-        // Use RocksDB if persistence feature is enabled
+        tracing::info!("Using sled storage backend (pure Rust)");
+        let storage = SledStorage::new(&storage_path)?;
+        return Ok(Arc::new(storage));
+    }
+
+    // Fallback to RocksDB only if sled is not available
+    #[cfg(all(feature = "persistence", not(feature = "sled-storage")))]
+    {
         tracing::info!("Using RocksDB storage backend");
         let storage = RocksStorage::new(&storage_path)?;
         return Ok(Arc::new(storage));
     }
 
-    #[cfg(not(feature = "persistence"))]
+    #[cfg(not(any(feature = "sled-storage", feature = "persistence")))]
     {
-        #[cfg(feature = "sled-storage")]
-        {
-            // Use sled (pure Rust)
-            tracing::info!("Using sled storage backend (pure Rust)");
-            let storage = SledStorage::new(&storage_path)?;
-            return Ok(Arc::new(storage));
-        }
-
-        #[cfg(not(feature = "sled-storage"))]
-        {
-            Err(MemoryError::Storage("No storage backend enabled".into()))
-        }
+        let _ = config;
+        Err(MemoryError::Storage("No storage backend enabled".into()))
     }
 }
 

@@ -2,11 +2,15 @@ pub mod error;
 pub mod types;
 pub mod traits;
 pub mod query;
+pub mod typed_memory;
+pub mod palace;
 
 pub use error::{MemoryError, Result};
 pub use types::*;
 pub use traits::*;
 pub use query::*;
+pub use typed_memory::*;
+pub use palace::*;
 
 #[cfg(test)]
 mod tests {

@@ -60,3 +60,24 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Vector similarity
 cosim = "0.1"
+
+# ML embeddings (optional, behind feature flag)
+candle-core = { version = "0.8" }
+candle-transformers = { version = "0.8" }
+candle-nn = { version = "0.8" }
+tokenizers = { version = "0.20" }
+hf-hub = { version = "0.3" }
+
+# Entity resolution (optional, behind feature flag)
+strsim = { version = "0.11" }
+
+# Prometheus metrics (optional, behind feature flag)
+prometheus-client = { version = "0.23" }
+
+# HTTP server (optional, behind feature flag)
+axum = { version = "0.7" }
+tower = { version = "0.5" }
+tower-http = { version = "0.5", features = ["cors"] }
+
+# Config parsing (optional, behind feature flag)
+toml = { version = "0.8" }

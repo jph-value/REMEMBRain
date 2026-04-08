@@ -25,12 +25,29 @@ parking_lot = { workspace = true }
 rayon = { workspace = true }
 tracing = { workspace = true }
 regex = "1"
+prometheus-client = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
+tower = { workspace = true, optional = true }
+tower-http = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
 
 [features]
-default = ["persistence", "archive"]
+default = ["sled-storage", "archive"]
 persistence = ["rememnemosyne-storage/persistence"]
 sled-storage = ["rememnemosyne-storage/sled-storage"]
 archive = ["rememnemosyne-storage/archive"]
+candle-embeddings = ["rememnemosyne-cognitive/candle-embeddings"]
+entity-resolution = ["rememnemosyne-graph/entity-resolution"]
+backup-export = ["rememnemosyne-storage/backup-export"]
+metrics = ["dep:prometheus-client"]
+http-server = ["dep:axum", "dep:tower", "dep:tower-http"]
+config-file = ["dep:toml"]
+structured-logging = ["dep:tracing-subscriber"]
+sharding = ["rememnemosyne-semantic/sharding"]
+read-replicas = ["rememnemosyne-storage/read-replicas"]
+compaction = []
+auto-pruning = []
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }

@@ -5,12 +5,38 @@ pub mod api;
 pub mod sanitizer;
 pub mod pruner;
 
+#[cfg(feature = "metrics")]
+pub mod metrics;
+
+#[cfg(feature = "http-server")]
+pub mod http_server;
+
+#[cfg(feature = "config-file")]
+pub mod config;
+
+#[cfg(feature = "structured-logging")]
+pub mod logging;
+
+#[cfg(feature = "compaction")]
+pub mod compaction;
+
+#[cfg(feature = "auto-pruning")]
+pub mod auto_pruning;
+
+pub mod providers;
+
 pub use router::*;
 pub use context::*;
 pub use builder::*;
 pub use api::*;
 pub use sanitizer::*;
 pub use pruner::*;
+
+#[cfg(feature = "metrics")]
+pub use metrics::*;
+
+#[cfg(feature = "http-server")]
+pub use http_server::*;
 
 #[cfg(test)]
 mod tests {

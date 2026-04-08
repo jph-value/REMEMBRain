@@ -33,6 +33,12 @@ pub mod snapshot;
 #[cfg(feature = "archive")]
 pub mod archive;
 
+#[cfg(feature = "backup-export")]
+pub mod backup;
+
+#[cfg(feature = "read-replicas")]
+pub mod read_replica;
+
 pub use backend::*;
 pub use sled_backend::SledStorage;
 
@@ -41,6 +47,12 @@ pub use rocks_backend::RocksStorage;
 
 #[cfg(feature = "archive")]
 pub use archive::{ArchiveCatalog, ArchiveConfig, ArchiveEntry, ArchiveStats, MemoryArchive};
+
+#[cfg(feature = "backup-export")]
+pub use backup::BackupManager;
+
+#[cfg(feature = "read-replicas")]
+pub use read_replica::{ReadReplicaConfig, ReadReplicaManager};
 
 use rememnemosyne_core::Result;
 

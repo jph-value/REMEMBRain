@@ -18,3 +18,7 @@ parking_lot = { workspace = true }
 petgraph = { workspace = true }
 rayon = { workspace = true }
 tracing = { workspace = true }
+strsim = { workspace = true, optional = true }
+
+[features]
+entity-resolution = ["dep:strsim"]

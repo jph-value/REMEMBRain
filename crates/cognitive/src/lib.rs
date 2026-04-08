@@ -2,11 +2,13 @@ pub mod intent;
 pub mod micro_embed;
 pub mod predictor;
 pub mod prefetcher;
+pub mod candle_embed;
 
 pub use intent::*;
 pub use micro_embed::*;
 pub use predictor::*;
 pub use prefetcher::*;
+pub use candle_embed::*;
 
 #[cfg(test)]
 mod tests {
