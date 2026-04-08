@@ -755,7 +755,7 @@ mod tests {
             "Rust Lifetimes Discussion",
             "Discussion about Rust lifetime annotations",
             drawer_id,
-        ).with_topics(vec!["rust", "lifetimes".to_string()]);
+        ).with_topics(vec!["rust".to_string(), "lifetimes".to_string()]);
         room.add_closet(closet);
         
         assert_eq!(room.drawers.len(), 1);
