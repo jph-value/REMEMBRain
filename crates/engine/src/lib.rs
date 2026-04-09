@@ -4,6 +4,7 @@ pub mod context;
 pub mod pruner;
 pub mod router;
 pub mod sanitizer;
+pub mod transaction;
 
 #[cfg(feature = "metrics")]
 pub mod metrics;

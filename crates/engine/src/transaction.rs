@@ -1,57 +1,39 @@
 /// Transaction support for multi-store memory operations.
 ///
-/// Provides atomic write/delete across semantic, episodic, graph, and temporal stores.
-/// Uses a two-phase approach:
-/// 1. Prepare: validate all operations, collect rollback data
-/// 2. Execute: perform all operations; rollback on any failure
-use async_trait::async_trait;
+/// Provides atomic write/delete across semantic and episodic stores
+/// with rollback on failure.
 use rememnemosyne_core::*;
 use rememnemosyne_episodic::EpisodicMemoryStore;
 use rememnemosyne_graph::GraphMemoryStore;
 use rememnemosyne_semantic::SemanticMemoryStore;
 use rememnemosyne_temporal::TemporalMemoryStore;
-use std::sync::Arc;
-
-/// A transactional memory operation that can be rolled back
-#[derive(Debug, Clone)]
-enum TxOp {
-    Store {
-        store: MemoryStoreType,
-        artifact: MemoryArtifact,
-    },
-    Delete {
-        store: MemoryStoreType,
-        id: MemoryId,
-        deleted_artifact: Option<MemoryArtifact>,
-    },
-    Update {
-        store: MemoryStoreType,
-        artifact: MemoryArtifact,
-        previous: Option<MemoryArtifact>,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MemoryStoreType {
-    Semantic,
-    Episodic,
-}
 
 /// Transaction result
 #[derive(Debug)]
 pub struct TxResult {
     pub committed: bool,
     pub memory_ids: Vec<MemoryId>,
-    pub rolled_back: bool,
 }
 
-/// Transactional memory operations across stores
-pub struct MemoryTransaction<'a> {
-    operations: Vec<TxOp>,
+#[derive(Debug, Clone)]
+enum TxOp {
+    Store(MemoryArtifact),
+    StoreEpisodic(MemoryArtifact),
+    Delete(MemoryId, Option<MemoryArtifact>),
+    Update(MemoryArtifact, Option<MemoryArtifact>),
+}
+
+struct TxStores<'a> {
     semantic: &'a SemanticMemoryStore,
     episodic: &'a EpisodicMemoryStore,
     graph: &'a GraphMemoryStore,
     temporal: &'a TemporalMemoryStore,
+}
+
+/// Transactional memory operations across semantic + episodic stores
+pub struct MemoryTransaction<'a> {
+    stores: TxStores<'a>,
+    ops: Vec<TxOp>,
 }
 
 impl<'a> MemoryTransaction<'a> {
@@ -62,148 +44,173 @@ impl<'a> MemoryTransaction<'a> {
         temporal: &'a TemporalMemoryStore,
     ) -> Self {
         Self {
-            operations: Vec::new(),
-            semantic,
-            episodic,
-            graph,
-            temporal,
+            stores: TxStores { semantic, episodic, graph, temporal },
+            ops: Vec::new(),
         }
     }
 
-    /// Queue a store operation
     pub fn store(&mut self, artifact: MemoryArtifact) {
-        self.operations.push(TxOp::Store {
-            store: MemoryStoreType::Semantic,
-            artifact,
-        });
+        self.ops.push(TxOp::Store(artifact));
     }
 
     pub fn delete(&mut self, id: MemoryId) {
-        self.operations.push(TxOp::Delete {
-            store: MemoryStoreType::Semantic,
-            id,
-            deleted_artifact: None,
-        });
+        self.ops.push(TxOp::Delete(id, None));
     }
 
-    /// Execute all queued operations atomically
+    pub fn update(&mut self, artifact: MemoryArtifact) {
+        self.ops.push(TxOp::Update(artifact, None));
+    }
+
+    /// Execute all operations atomically with rollback on failure
     pub async fn commit(mut self) -> Result<TxResult> {
-        if self.operations.is_empty() {
-            return Ok(TxResult {
-                committed: true,
-                memory_ids: Vec::new(),
-                rolled_back: false,
-            });
+        if self.ops.is_empty() {
+            return Ok(TxResult { committed: true, memory_ids: Vec::new() });
         }
 
-        // Phase 1: Prepare — collect rollback data for deletes
-        for op in &mut self.operations {
-            if let TxOp::Delete { id, deleted_artifact, .. } = op {
-                if let Ok(Some(artifact)) = self.semantic.get(id).await {
-                    *deleted_artifact = Some(artifact);
+        // Phase 1: Prepare — snapshot data for rollback
+        for op in &mut self.ops {
+            match op {
+                TxOp::Delete(id, prev) => {
+                    if let Ok(Some(a)) = self.stores.semantic.get(id).await {
+                        *prev = Some(a);
+                    }
                 }
-            }
-            if let TxOp::Update { artifact, previous, .. } = op {
-                if let Ok(Some(existing)) = self.semantic.get(&artifact.id).await {
-                    *previous = Some(existing);
+                TxOp::Update(artifact, prev) => {
+                    if let Ok(Some(a)) = self.stores.semantic.get(&artifact.id).await {
+                        *prev = Some(a);
+                    }
                 }
+                _ => {}
             }
         }
 
-        // Phase 2: Execute — perform all operations, tracking what was done
-        let mut executed: Vec<TxOp> = Vec::new();
-        let mut memory_ids: Vec<MemoryId> = Vec::new();
+        // Phase 2: Execute with rollback on failure
+        let mut executed_indices = Vec::new();
+        let mut memory_ids = Vec::new();
 
-        for op in self.operations {
-            match self.execute_op(&op).await {
+        for (i, op) in self.ops.iter().enumerate() {
+            match self.exec(op).await {
                 Ok(Some(id)) => {
                     memory_ids.push(id);
-                    executed.push(op);
+                    executed_indices.push(i);
                 }
                 Ok(None) => {
-                    executed.push(op);
+                    executed_indices.push(i);
                 }
                 Err(e) => {
-                    // Rollback all executed operations in reverse order
-                    self.rollback(&executed).await;
+                    self.rollback_by_indices(&executed_indices).await;
                     return Err(MemoryError::Storage(format!(
-                        "Transaction failed during commit, rolled back: {e}"
+                        "Transaction failed, rolled back: {e}"
                     )));
                 }
             }
         }
 
-        Ok(TxResult {
-            committed: true,
-            memory_ids,
-            rolled_back: false,
-        })
+        Ok(TxResult { committed: true, memory_ids })
     }
 
-    /// Execute a single operation
-    async fn execute_op(&self, op: &TxOp) -> Result<Option<MemoryId>> {
+    async fn exec(&self, op: &TxOp) -> Result<Option<MemoryId>> {
         match op {
-            TxOp::Store { store, artifact } => match store {
-                MemoryStoreType::Semantic => {
-                    let id = self.semantic.store(artifact.clone()).await?;
-                    Ok(Some(id))
-                }
-                MemoryStoreType::Episodic => {
-                    let id = self.episodic.store(artifact.clone()).await?;
-                    Ok(Some(id))
-                }
-            },
-            TxOp::Delete { store, id, .. } => match store {
-                MemoryStoreType::Semantic => {
-                    self.semantic.delete(id).await?;
-                    Ok(None)
-                }
-                MemoryStoreType::Episodic => {
-                    self.episodic.delete(id).await?;
-                    Ok(None)
-                }
-            },
-            TxOp::Update { store, artifact, .. } => match store {
-                MemoryStoreType::Semantic => {
-                    self.semantic.update(artifact.clone()).await?;
-                    Ok(None)
-                }
-                MemoryStoreType::Episodic => {
-                    self.episodic.update(artifact.clone()).await?;
-                    Ok(None)
-                }
-            },
+            TxOp::Store(a) => {
+                let id = self.stores.semantic.store(a.clone()).await?;
+                Ok(Some(id))
+            }
+            TxOp::StoreEpisodic(a) => {
+                let id = self.stores.episodic.store(a.clone()).await?;
+                Ok(Some(id))
+            }
+            TxOp::Delete(id, _) => {
+                self.stores.semantic.delete(id).await?;
+                Ok(None)
+            }
+            TxOp::Update(a, _) => {
+                self.stores.semantic.update(a.clone()).await?;
+                Ok(None)
+            }
         }
     }
 
-    /// Rollback executed operations in reverse order
-    async fn rollback(&self, executed: &[TxOp]) {
-        for op in executed.iter().rev() {
+    async fn rollback_by_indices(&self, indices: &[usize]) {
+        for i in indices.iter().rev() {
+            let op = &self.ops[*i];
             match op {
-                TxOp::Store { store, artifact } => {
-                    let _ = self.semantic.delete(&artifact.id).await;
-                    let _ = self.episodic.delete(&artifact.id).await;
+                TxOp::Store(a) | TxOp::StoreEpisodic(a) => {
+                    let _ = self.stores.semantic.delete(&a.id).await;
+                    let _ = self.stores.episodic.delete(&a.id).await;
                 }
-                TxOp::Delete {
-                    store,
-                    id,
-                    deleted_artifact,
-                } => {
-                    if let Some(ref artifact) = deleted_artifact {
-                        let _ = self.semantic.store(artifact.clone()).await;
+                TxOp::Delete(id, prev) => {
+                    if let Some(a) = prev {
+                        let _ = self.stores.semantic.store(a.clone()).await;
                     }
-                    let _ = self.graph.delete_entity_by_memory_id(id).await;
-                    let _ = self.temporal.delete_events_by_memory_id(id).await;
+                    let _ = self.stores.graph.delete_entity_by_memory_id(id).await;
+                    let _ = self.stores.temporal.delete_events_by_memory_id(id).await;
                 }
-                TxOp::Update {
-                    store,
-                    previous,
-                    artifact,
-                } => {
-                    if let Some(ref prev) = previous {
-                        let _ = self.semantic.update(prev.clone()).await;
+                TxOp::Update(a, prev) => {
+                    if let Some(p) = prev {
+                        let _ = self.stores.semantic.update(p.clone()).await;
                     } else {
-                        let _ = self.semantic.delete(&artifact.id).await;
+                        let _ = self.stores.semantic.delete(&a.id).await;
+                    }
+                }
+            }
+        }
+    }
+                Ok(None) => {
+                    executed_indices.push(i);
+                }
+                Err(e) => {
+                    self.rollback_by_indices(&executed_indices).await;
+                    return Err(MemoryError::Storage(format!(
+                        "Transaction failed, rolled back: {e}"
+                    )));
+                }
+            }
+        }
+
+        Ok(TxResult { committed: true, memory_ids })
+    }
+
+    async fn exec(&self, op: &TxOp) -> Result<Option<MemoryId>> {
+        match op {
+            TxOp::Store(a) => {
+                let id = self.stores.semantic.store(a.clone()).await?;
+                Ok(Some(id))
+            }
+            TxOp::StoreEpisodic(a) => {
+                let id = self.stores.episodic.store(a.clone()).await?;
+                Ok(Some(id))
+            }
+            TxOp::Delete(id, _) => {
+                self.stores.semantic.delete(id).await?;
+                Ok(None)
+            }
+            TxOp::Update(a, _) => {
+                self.stores.semantic.update(a.clone()).await?;
+                Ok(None)
+            }
+        }
+    }
+
+    async fn rollback_by_indices(&self, indices: &[usize]) {
+        for i in indices.iter().rev() {
+            let op = &self.ops[*i];
+            match op {
+                TxOp::Store(a) | TxOp::StoreEpisodic(a) => {
+                    let _ = self.stores.semantic.delete(&a.id).await;
+                    let _ = self.stores.episodic.delete(&a.id).await;
+                }
+                TxOp::Delete(id, prev) => {
+                    if let Some(a) = prev {
+                        let _ = self.stores.semantic.store(a.clone()).await;
+                    }
+                    let _ = self.stores.graph.delete_entity_by_memory_id(id).await;
+                    let _ = self.stores.temporal.delete_events_by_memory_id(id).await;
+                }
+                TxOp::Update(a, prev) => {
+                    if let Some(p) = prev {
+                        let _ = self.stores.semantic.update(p.clone()).await;
+                    } else {
+                        let _ = self.stores.semantic.delete(&a.id).await;
                     }
                 }
             }
@@ -211,7 +218,7 @@ impl<'a> MemoryTransaction<'a> {
     }
 }
 
-/// Convenience: execute a transactional delete across all stores
+/// Transactional delete across all stores
 pub async fn delete_all_stores(
     semantic: &SemanticMemoryStore,
     episodic: &EpisodicMemoryStore,
@@ -225,13 +232,15 @@ pub async fn delete_all_stores(
     Ok(result.committed)
 }
 
-/// Convenience: execute a transactional store across semantic + episodic
+/// Transactional store to semantic + episodic
 pub async fn store_all_stores(
     semantic: &SemanticMemoryStore,
     episodic: &EpisodicMemoryStore,
+    graph: &GraphMemoryStore,
+    temporal: &TemporalMemoryStore,
     artifact: MemoryArtifact,
 ) -> Result<MemoryId> {
-    let mut tx = MemoryTransaction::new(semantic, episodic, &GraphMemoryStore::new(Default::default()), &TemporalMemoryStore::new(Default::default()));
+    let mut tx = MemoryTransaction::new(semantic, episodic, graph, temporal);
     tx.store(artifact.clone());
     let result = tx.commit().await?;
     result.memory_ids.first().copied().ok_or_else(|| {
