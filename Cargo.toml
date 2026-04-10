@@ -9,6 +9,7 @@ members = [
     "crates/cognitive",
     "crates/storage",
     "crates/engine",
+    "crates/clone-tracker",
 ]
 
 [workspace.package]

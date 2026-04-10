@@ -288,3 +288,17 @@ RISC.OSINT was the first system to consume Mnemosyne, stress-testing the API and
 ## 📄 License
 
 MIT
+
+---
+
+## 🔔 Feedback & Usage
+
+We are curious about how RemeMnemosyne is being used and by whom. If you're cloning or using this repository, we'd appreciate any feedback, issues, or contributions. The project includes an optional clone tracker (`crates/clone-tracker`) to help us understand usage patterns — this is **completely opt-out** and collects only anonymous system information (OS, architecture, CI system). No personal data is collected.
+
+**To disable tracking:**
+```bash
+touch ~/.no_rememnemosyne_tracking  # Disable globally
+touch .no_tracking                  # Disable per-repo
+```
+
+We welcome GitHub issues, pull requests, and any feedback about how you're using RemeMnemosyne!
