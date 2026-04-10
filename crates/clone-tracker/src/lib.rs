@@ -151,6 +151,7 @@ pub fn request_feedback(config: &TrackerConfig) -> Option<String> {
   Please consider submitting feedback via:
   - GitHub Issue: https://github.com/jph-value/RemeMnemosyne/issues/new
   - Or save feedback to .rememnemosyne_feedback in this repo
+  - Or email: aid8ta@p-h.email
 
   Optional: Include system info by setting REMEMNEMOSYNE_SHARE_SPECS=1
 ══════════════════════════════════════════════════════════════════
@@ -167,6 +168,7 @@ pub fn request_feedback(config: &TrackerConfig) -> Option<String> {
   If RemeMnemosyne has been useful, please consider sharing feedback:
   - GitHub Issue: https://github.com/jph-value/RemeMnemosyne/issues/new
   - Or save feedback to .rememnemosyne_feedback in this repo
+  - Or email: aid8ta@p-h.email
 
   Your insights help improve the project for everyone.
 ══════════════════════════════════════════════════════════════════
