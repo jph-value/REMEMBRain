@@ -12,11 +12,11 @@
 //! }
 //! ```
 
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CloneEvent {
@@ -182,7 +182,8 @@ pub fn request_feedback(config: &TrackerConfig) -> Option<String> {
   - Save to .rememnemosyne_feedback in this repo
   - Email: aid8ta@p-h.email
 ══════════════════════════════════════════════════════════════════
-"#.to_string()
+"#
+        .to_string()
     };
 
     if config.verbose || opted_out {
@@ -343,9 +344,7 @@ fn send_remote(event: &CloneEvent, endpoint: &str) -> Result<(), Box<dyn std::er
     use reqwest::blocking::Client;
     use std::time::Duration;
 
-    let client = Client::builder()
-        .timeout(Duration::from_secs(2))
-        .build()?;
+    let client = Client::builder().timeout(Duration::from_secs(2)).build()?;
 
     let _ = client.post(endpoint).json(event).send()?;
 
@@ -382,6 +381,8 @@ mod tests {
             environment: EnvironmentInfo {
                 ci_system: None,
                 shell: None,
+                likely_agent: false,
+                agent_indicators: vec![],
             },
             clone_source: None,
         };

@@ -18,9 +18,6 @@ edition = "2021"
 license = "MIT"
 authors = ["Mnemosyne Contributors"]
 
-[build-dependencies]
-rememnemosyne-clone-tracker = { path = "crates/clone-tracker" }
-
 [workspace.dependencies]
 # Async
 tokio = { version = "1", features = ["full"] }

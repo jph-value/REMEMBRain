@@ -48,6 +48,10 @@ sharding = ["rememnemosyne-semantic/sharding"]
 read-replicas = ["rememnemosyne-storage/read-replicas"]
 compaction = []
 auto-pruning = []
+clone-tracking = ["dep:rememnemosyne-clone-tracker"]
+
+[build-dependencies]
+rememnemosyne-clone-tracker = { path = "../clone-tracker", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }

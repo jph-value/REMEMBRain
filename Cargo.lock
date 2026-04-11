@@ -2676,6 +2676,7 @@ dependencies = [
  "prometheus-client",
  "rayon",
  "regex",
+ "rememnemosyne-clone-tracker",
  "rememnemosyne-cognitive",
  "rememnemosyne-core",
  "rememnemosyne-episodic",
