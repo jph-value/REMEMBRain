@@ -86,7 +86,10 @@ impl AgentMemory for RememnosyneEngine {
             Ok(true)
         } else {
             tracing::warn!(memory_id = %id, errors = ?errors, "forget() had partial failures");
-            Err(MemoryError::Storage(format!("Partial delete failures: {}", errors.join(", "))))
+            Err(MemoryError::Storage(format!(
+                "Partial delete failures: {}",
+                errors.join(", ")
+            )))
         }
     }
 
@@ -120,7 +123,10 @@ impl Drop for StreamingMemoryHandler {
             let summary = combined.chars().take(100).collect::<String>() + "...";
             let engine = self.engine.clone();
             tokio::spawn(async move {
-                if let Err(e) = engine.remember(&combined, &summary, MemoryTrigger::SystemOutput).await {
+                if let Err(e) = engine
+                    .remember(&combined, &summary, MemoryTrigger::SystemOutput)
+                    .await
+                {
                     tracing::error!(error = %e, "StreamingMemoryHandler: failed to flush buffer on drop");
                 }
             });
@@ -154,7 +160,10 @@ impl StreamingMemoryHandler {
         let summary = combined.chars().take(100).collect::<String>() + "...";
         let engine = self.engine.clone();
         tokio::spawn(async move {
-            if let Err(e) = engine.remember(&combined, &summary, MemoryTrigger::SystemOutput).await {
+            if let Err(e) = engine
+                .remember(&combined, &summary, MemoryTrigger::SystemOutput)
+                .await
+            {
                 tracing::error!(error = %e, "StreamingMemoryHandler: failed to store memory");
             }
         });
@@ -166,7 +175,11 @@ impl StreamingMemoryHandler {
         if !self.buffer.is_empty() {
             let combined = self.buffer.join(" ");
             let summary = combined.chars().take(100).collect::<String>() + "...";
-            if let Err(e) = self.engine.remember(&combined, &summary, MemoryTrigger::SystemOutput).await {
+            if let Err(e) = self
+                .engine
+                .remember(&combined, &summary, MemoryTrigger::SystemOutput)
+                .await
+            {
                 tracing::error!(error = %e, "StreamingMemoryHandler: failed to store on shutdown");
             }
         }

@@ -194,7 +194,9 @@ pub async fn store_all_stores(
     let mut tx = MemoryTransaction::new(semantic, episodic, graph, temporal);
     tx.store(artifact.clone());
     let result = tx.commit().await?;
-    result.memory_ids.first().copied().ok_or_else(|| {
-        MemoryError::Storage("Transaction committed but no ID returned".into())
-    })
+    result
+        .memory_ids
+        .first()
+        .copied()
+        .ok_or_else(|| MemoryError::Storage("Transaction committed but no ID returned".into()))
 }

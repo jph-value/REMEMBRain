@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[cfg(feature = "candle-embeddings")]
-use candle_core::{Device, Tensor, DType};
+use candle_core::{DType, Device, Tensor};
 #[cfg(feature = "candle-embeddings")]
 use parking_lot::RwLock;
 #[cfg(feature = "candle-embeddings")]
@@ -82,7 +82,10 @@ impl CandleEmbedder {
         }
 
         let (model_path, tokenizer_path) = if let Some(local_path) = &self.config.local_model_path {
-            (local_path.join("onnx/model.onnx"), local_path.join("tokenizer.json"))
+            (
+                local_path.join("onnx/model.onnx"),
+                local_path.join("tokenizer.json"),
+            )
         } else {
             let api = Api::new().map_err(|e| {
                 MemoryError::Cognitive(format!("Failed to initialize HuggingFace API: {}", e))
@@ -111,7 +114,8 @@ impl CandleEmbedder {
             .map_err(|e| MemoryError::Cognitive(format!("Failed to load ONNX model: {}", e)))?;
         *self.model.write() = Some(model_proto);
 
-        self.model_loaded.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.model_loaded
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         tracing::info!(
             model = %self.config.model_name,
             dimensions = self.config.dimensions,
@@ -167,16 +171,26 @@ impl CandleEmbedder {
         encoding: &tokenizers::Encoding,
     ) -> Result<Vec<f32>> {
         let token_ids: Vec<i64> = encoding.get_ids().iter().map(|&x| x as i64).collect();
-        let attention_mask: Vec<i64> = encoding.get_attention_mask().iter().map(|&x| x as i64).collect();
+        let attention_mask: Vec<i64> = encoding
+            .get_attention_mask()
+            .iter()
+            .map(|&x| x as i64)
+            .collect();
         let token_type_ids: Vec<i64> = encoding.get_type_ids().iter().map(|&x| x as i64).collect();
 
         let seq_len = token_ids.len();
-        let input_ids = Tensor::from_vec(token_ids, (1usize, seq_len), &self.device)
-            .map_err(|e| MemoryError::Cognitive(format!("Failed to create input_ids tensor: {}", e)))?;
+        let input_ids =
+            Tensor::from_vec(token_ids, (1usize, seq_len), &self.device).map_err(|e| {
+                MemoryError::Cognitive(format!("Failed to create input_ids tensor: {}", e))
+            })?;
         let attention_mask = Tensor::from_vec(attention_mask, (1usize, seq_len), &self.device)
-            .map_err(|e| MemoryError::Cognitive(format!("Failed to create attention_mask tensor: {}", e)))?;
+            .map_err(|e| {
+                MemoryError::Cognitive(format!("Failed to create attention_mask tensor: {}", e))
+            })?;
         let token_type_ids = Tensor::from_vec(token_type_ids, (1usize, seq_len), &self.device)
-            .map_err(|e| MemoryError::Cognitive(format!("Failed to create token_type_ids tensor: {}", e)))?;
+            .map_err(|e| {
+                MemoryError::Cognitive(format!("Failed to create token_type_ids tensor: {}", e))
+            })?;
 
         let mut inputs = HashMap::new();
         inputs.insert("input_ids".to_string(), input_ids);
@@ -186,11 +200,13 @@ impl CandleEmbedder {
         let outputs = candle_onnx::simple_eval(model, inputs)
             .map_err(|e| MemoryError::Cognitive(format!("ONNX inference failed: {}", e)))?;
 
-        let hidden_states = outputs.get("last_hidden_state")
-            .ok_or_else(|| MemoryError::Cognitive("ONNX model missing 'last_hidden_state' output".to_string()))?;
+        let hidden_states = outputs.get("last_hidden_state").ok_or_else(|| {
+            MemoryError::Cognitive("ONNX model missing 'last_hidden_state' output".to_string())
+        })?;
 
-        let hidden_states = hidden_states.to_dtype(DType::F32)
-            .map_err(|e| MemoryError::Cognitive(format!("Failed to convert hidden states to F32: {}", e)))?;
+        let hidden_states = hidden_states.to_dtype(DType::F32).map_err(|e| {
+            MemoryError::Cognitive(format!("Failed to convert hidden states to F32: {}", e))
+        })?;
 
         let pooled = mean_pool(&hidden_states, &attention_mask)
             .map_err(|e| MemoryError::Cognitive(format!("MEAN pooling failed: {}", e)))?;
@@ -202,8 +218,9 @@ impl CandleEmbedder {
             pooled
         };
 
-        let embedding_vec = embedding.to_vec1::<f32>()
-            .map_err(|e| MemoryError::Cognitive(format!("Failed to extract embedding vector: {}", e)))?;
+        let embedding_vec = embedding.to_vec1::<f32>().map_err(|e| {
+            MemoryError::Cognitive(format!("Failed to extract embedding vector: {}", e))
+        })?;
 
         Ok(embedding_vec)
     }
@@ -343,8 +360,12 @@ impl CandleEmbedder {
     }
 
     pub fn clear_cache(&self) {}
-    pub fn is_loaded(&self) -> bool { false }
-    pub fn config(&self) -> &CandleEmbedConfig { &self.config }
+    pub fn is_loaded(&self) -> bool {
+        false
+    }
+    pub fn config(&self) -> &CandleEmbedConfig {
+        &self.config
+    }
 }
 
 #[cfg(test)]

@@ -307,9 +307,10 @@ impl MemoryRouter {
                 tracing::warn!(error = %e, "Batch embedding failed, falling back to individual");
                 let mut results = Vec::with_capacity(texts.len());
                 for text in texts {
-                    let emb = self.generate_embedding(text).await.unwrap_or_else(|_| {
-                        vec![0.0; self.config.embedding_dimensions]
-                    });
+                    let emb = self
+                        .generate_embedding(text)
+                        .await
+                        .unwrap_or_else(|_| vec![0.0; self.config.embedding_dimensions]);
                     results.push(emb);
                 }
                 results

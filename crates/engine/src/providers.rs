@@ -106,9 +106,10 @@ impl EmbeddingProvider for OpenRouterEmbedding {
     async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse> {
         let texts = vec![request.text.clone()];
         let embeddings = self.embed_via_api(texts).await?;
-        let embedding = embeddings.into_iter().next().unwrap_or_else(|| {
-            vec![0.0; self.dimensions]
-        });
+        let embedding = embeddings
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| vec![0.0; self.dimensions]);
         Ok(EmbeddingResponse::new(embedding, &self.model))
     }
 
@@ -180,7 +181,9 @@ impl EmbeddingProviderRouter {
                     let provider = OpenRouterEmbedding::new(api_key, model, dimensions);
                     Self::new(Arc::new(provider))
                 } else {
-                    tracing::warn!("OpenRouter provider configured but no API key set, using hash fallback");
+                    tracing::warn!(
+                        "OpenRouter provider configured but no API key set, using hash fallback"
+                    );
                     Self::new(Arc::new(HashEmbedder::new(config.dimensions)))
                 }
             }

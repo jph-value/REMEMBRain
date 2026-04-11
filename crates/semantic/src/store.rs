@@ -321,8 +321,7 @@ impl SemanticMemoryStore {
     /// Save HNSW index to disk for fast startup
     pub async fn save_hnsw_index(&self, path: &std::path::Path) -> Result<()> {
         let hnsw = self.hnsw_index.read().await;
-        hnsw.save_to_file(path)
-            .map_err(MemoryError::Io)?;
+        hnsw.save_to_file(path).map_err(MemoryError::Io)?;
         tracing::info!(path = ?path, "HNSW index saved to disk");
         Ok(())
     }
@@ -376,7 +375,8 @@ impl MemoryStore for SemanticMemoryStore {
             let k = query.limit.unwrap_or(10);
             let threshold = query.min_relevance.unwrap_or(0.0);
             let results = self.search_similar(embedding, k, threshold).await?;
-            let filtered = self.apply_query_filters(results.into_iter().map(|(m, _)| m).collect(), query);
+            let filtered =
+                self.apply_query_filters(results.into_iter().map(|(m, _)| m).collect(), query);
             return Ok(filtered);
         }
 

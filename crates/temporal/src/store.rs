@@ -64,13 +64,24 @@ impl TemporalMemoryStore {
                     format!("Timeline for entity {}", event.entity_id),
                 );
             }
-            if manager.add_event_to_entity(&event.entity_id, event.clone()).is_err() {
-                return Err(MemoryError::Storage("Failed to add event to timeline".into()));
+            if manager
+                .add_event_to_entity(&event.entity_id, event.clone())
+                .is_err()
+            {
+                return Err(MemoryError::Storage(
+                    "Failed to add event to timeline".into(),
+                ));
             }
         }
         self.events.insert(event_id, event.clone());
-        self.entity_events.entry(event.entity_id).or_default().push(event_id);
-        self.memory_events.entry(event.memory_id).or_default().push(event_id);
+        self.entity_events
+            .entry(event.entity_id)
+            .or_default()
+            .push(event_id);
+        self.memory_events
+            .entry(event.memory_id)
+            .or_default()
+            .push(event_id);
         {
             let mut time_index = self.time_index.write();
             time_index.push((event.timestamp, event_id));
@@ -84,7 +95,11 @@ impl TemporalMemoryStore {
         entity_id: &EntityId,
         window: Option<&TimeWindow>,
     ) -> Result<Vec<TemporalEvent>> {
-        let event_ids = self.entity_events.get(entity_id).map(|ids| ids.clone()).unwrap_or_default();
+        let event_ids = self
+            .entity_events
+            .get(entity_id)
+            .map(|ids| ids.clone())
+            .unwrap_or_default();
         let mut events = Vec::new();
         for event_id in event_ids {
             if let Some(event) = self.events.get(&event_id) {
@@ -101,7 +116,11 @@ impl TemporalMemoryStore {
     }
 
     pub async fn get_events_for_memory(&self, memory_id: &MemoryId) -> Result<Vec<TemporalEvent>> {
-        let event_ids = self.memory_events.get(memory_id).map(|ids| ids.clone()).unwrap_or_default();
+        let event_ids = self
+            .memory_events
+            .get(memory_id)
+            .map(|ids| ids.clone())
+            .unwrap_or_default();
         let mut events = Vec::new();
         for event_id in event_ids {
             if let Some(event) = self.events.get(&event_id) {
@@ -199,10 +218,14 @@ impl TemporalMemoryStore {
         TemporalStatistics {
             total_events: self.events.len(),
             unique_entities: self.entity_events.len(),
-            events_by_type: self.events.iter().map(|e| format!("{:?}", e.event_type)).fold(HashMap::new(), |mut acc, t| {
-                *acc.entry(t).or_insert(0) += 1;
-                acc
-            }),
+            events_by_type: self
+                .events
+                .iter()
+                .map(|e| format!("{:?}", e.event_type))
+                .fold(HashMap::new(), |mut acc, t| {
+                    *acc.entry(t).or_insert(0) += 1;
+                    acc
+                }),
             earliest_event: time_index.first().map(|(t, _)| *t),
             latest_event: time_index.last().map(|(t, _)| *t),
         }
@@ -308,18 +331,38 @@ impl TemporalMemoryStore {
         let previous_start = now - chrono::Duration::hours(window_hours + comparison_window_hours);
         let previous_end = now - chrono::Duration::hours(comparison_window_hours);
         let time_index = self.time_index.read();
-        let current_count = time_index.iter().filter(|(t, _)| *t >= current_start && *t <= now).count();
-        let previous_count = time_index.iter().filter(|(t, _)| *t >= previous_start && *t <= previous_end).count();
+        let current_count = time_index
+            .iter()
+            .filter(|(t, _)| *t >= current_start && *t <= now)
+            .count();
+        let previous_count = time_index
+            .iter()
+            .filter(|(t, _)| *t >= previous_start && *t <= previous_end)
+            .count();
         if previous_count == 0 {
-            return TemporalPattern::Stable { current_count, previous_count: 0 };
+            return TemporalPattern::Stable {
+                current_count,
+                previous_count: 0,
+            };
         }
         let ratio = current_count as f32 / previous_count as f32;
         if ratio > 2.0 {
-            TemporalPattern::Escalation { current_count, previous_count, ratio }
+            TemporalPattern::Escalation {
+                current_count,
+                previous_count,
+                ratio,
+            }
         } else if ratio < 0.5 {
-            TemporalPattern::Stabilization { current_count, previous_count, ratio }
+            TemporalPattern::Stabilization {
+                current_count,
+                previous_count,
+                ratio,
+            }
         } else {
-            TemporalPattern::Stable { current_count, previous_count }
+            TemporalPattern::Stable {
+                current_count,
+                previous_count,
+            }
         }
     }
 }
@@ -327,9 +370,20 @@ impl TemporalMemoryStore {
 /// Detected temporal pattern
 #[derive(Debug, Clone)]
 pub enum TemporalPattern {
-    Escalation { current_count: usize, previous_count: usize, ratio: f32 },
-    Stabilization { current_count: usize, previous_count: usize, ratio: f32 },
-    Stable { current_count: usize, previous_count: usize },
+    Escalation {
+        current_count: usize,
+        previous_count: usize,
+        ratio: f32,
+    },
+    Stabilization {
+        current_count: usize,
+        previous_count: usize,
+        ratio: f32,
+    },
+    Stable {
+        current_count: usize,
+        previous_count: usize,
+    },
 }
 
 #[allow(dead_code)]
