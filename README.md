@@ -2,7 +2,7 @@
 
 A high-performance, pure Rust agentic memory engine for LLM agents — with spatial memory organization, verbatim preservation, multi-provider embeddings, and typed intelligence memories.
 
-Born from **RISC.OSINT**, a planetary-scale global risk intelligence system.
+Born from project needs such as "a54.space", an agentic development system,  and **RISC.IT.COM OSINTR**, a planetary-scale global risk intelligence system. 
 
 ---
 
