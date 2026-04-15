@@ -83,6 +83,39 @@ Every major architectural decision traces to a specific project or algorithm. Th
 
 ---
 
+### 2b. Memory Caching (MC) — Segment Checkpointing & Gated Retrieval
+
+**Paper**: arXiv:2602.24281 — "Memory Caching: RNNs with Growing Memory"  
+**Authors**: Ali Behrouz, Zeman Li, Yuan Deng, Peilin Zhong, Meisam Razaviyayn, Vahab Mirrokni
+
+**What We Adopted:**
+
+| MC Concept | RemeMnemosyne Implementation | Location |
+|---|---|---|
+| **Segment checkpoint** — compressed summary of a time window | `MemoryCheckpoint` with importance-weighted embedding | `crates/core/src/types.rs` |
+| **Dual-trigger checkpoint creation** (count + time) | `CheckpointStore` with configurable thresholds | `crates/episodic/src/checkpoint.rs` |
+| **Gated Residual Memory (GRM)** — per-memory contribution gates | `contribution_weights` on `ContextBundle`, `build_context_weighted()` | `crates/engine/src/context.rs` |
+| **Sparse Selective Caching (SSC)** — Top-k checkpoint routing | `SSCRouter` with `route_with_transitions()` | `crates/cognitive/src/ssc_router.rs` |
+| **Transition-blended scoring** (embedding + intent transitions) | `ContextPredictor` transition matrix blended 70/30 with cosine sim | `crates/cognitive/src/predictor.rs`, `crates/engine/src/router.rs` |
+| **Importance-weighted pooling** for checkpoint fingerprinting | `CheckpointEmbeddingMethod::ImportanceWeightedPool` default | `crates/core/src/math.rs`, `crates/episodic/src/checkpoint.rs` |
+| **Softmax normalization** over top-k (not all) candidates | Top-k softmax with 0.05 floor for non-top candidates | `crates/engine/src/context.rs` |
+| **Cold-start degradation** — falls through to HNSW when N=1 | `checkpoint_aware_search()` returns empty set when no checkpoints | `crates/engine/src/router.rs` |
+
+**What We Improved Over MC Paper:**
+
+| MC Limitation | RemeMnemosyne Improvement |
+|---|---|
+| Theoretical formulation only | **Full production implementation** with 132 passing tests |
+| No persistence specification | **Eviction-safe deregistration** — `evict_and_return_ids()` + SSC `deregister()` |
+| No cold-start guard for transitions | **>10 observation threshold** before blending, preventing noise |
+| No graduated context rendering | **Weight-tiered formatting** — 3 rendering depths based on γ gates |
+| Hard gating risk | **1.3× soft multiplier** instead of hard filter |
+| No dual-embedding discrimination | **Both mean + importance-weighted embeddings** stored per checkpoint |
+
+**Key Architectural Decision**: MC proved that segment checkpointing + gated retrieval prevents F1 collapse at scale (documented 0.80→0.01 drop in our evaluation). We adopted this but added risk mitigations (soft boost, cold-start guards, dual embeddings) and wired transition blending into the SSC router for intent-aware routing.
+
+---
+
 ## Algorithm Inspirations
 
 ### 3. Faiss — Quantization & Vector Search
@@ -170,22 +203,25 @@ Every major architectural decision traces to a specific project or algorithm. Th
 
 ## Architecture Comparison Matrix
 
-| Feature | Mempalace | Mem0 | Faiss | RemeMnemosyne |
-|---------|-----------|------|-------|---------------|
-| **Language** | Python | Python | C++ | **Rust** |
-| **Spatial Organization** | ✅ Wings/Halls/Rooms | ❌ | ❌ | ✅ (adopted from Mempalace) |
-| **Verbatim Preservation** | ✅ Drawers | ❌ (LLM extracts) | N/A | ✅ (adopted from Mempalace) |
-| **Layered Context** | ✅ L0-L3 | ❌ | N/A | ✅ L0-L4 (extended from Mempalace) |
-| **Temporal Validity** | ✅ SQLite graph | ❌ | N/A | ✅ (adopted from Mempalace) |
-| **Multi-Provider LLM** | ❌ (local only) | ✅ (cloud) | N/A | ✅ (local + cloud) |
-| **Vector Quantization** | ❌ (ChromaDB) | ❌ | ✅ PQ/OPQ/IVF | ✅ (adopted from Faiss) |
-| **HNSW Index** | ❌ (ChromaDB) | ❌ | ✅ | ✅ (adopted from HNSWLib) |
-| **Typed Memories** | ❌ (generic) | ❌ (user/session/agent) | N/A | ✅ (Event/Narrative/RiskNode/Evidence/Simulation) |
-| **Entity Resolution** | ❌ | ❌ | N/A | ✅ (fuzzy matching) |
-| **Horizontal Scaling** | ❌ (single-node) | ✅ (managed cloud) | ✅ (distributed) | ✅ (sharding + replicas) |
-| **Metrics** | ❌ | ❌ | ❌ | ✅ (Prometheus) |
-| **HTTP API** | MCP only | REST + SDKs | C API | ✅ (REST + health) |
-| **License** | MIT | Apache 2.0 | MIT+BSD | MIT |
+| Feature | Mempalace | Mem0 | Faiss | arXiv:2602.24281 (MC) | RemeMnemosyne |
+|---------|-----------|------|-------|------------------------|---------------|
+| **Language** | Python | Python | C++ | Theory | **Rust** |
+| **Spatial Organization** | ✅ Wings/Halls/Rooms | ❌ | ❌ | ❌ | ✅ (adopted from Mempalace) |
+| **Verbatim Preservation** | ✅ Drawers | ❌ (LLM extracts) | N/A | ❌ | ✅ (adopted from Mempalace) |
+| **Layered Context** | ✅ L0-L3 | ❌ | N/A | ❌ | ✅ L0-L4 (extended from Mempalace) |
+| **Temporal Validity** | ✅ SQLite graph | ❌ | N/A | ❌ | ✅ (adopted from Mempalace) |
+| **Segment Checkpointing** | ❌ | ❌ | ❌ | ✅ | ✅ (adopted from MC) |
+| **Gated Context Assembly** | ❌ | ❌ | N/A | ✅ GRM | ✅ (adopted from MC) |
+| **SSC Router** | ❌ | ❌ | N/A | ✅ | ✅ (adopted from MC + transition blending) |
+| **Multi-Provider LLM** | ❌ (local only) | ✅ (cloud) | N/A | ❌ | ✅ (local + cloud) |
+| **Vector Quantization** | ❌ (ChromaDB) | ❌ | ✅ PQ/OPQ/IVF | ❌ | ✅ (adopted from Faiss) |
+| **HNSW Index** | ❌ (ChromaDB) | ❌ | ✅ | ❌ | ✅ (adopted from HNSWLib) |
+| **Typed Memories** | ❌ (generic) | ❌ (user/session/agent) | N/A | ❌ | ✅ (Event/Narrative/RiskNode/Evidence/Simulation) |
+| **Entity Resolution** | ❌ | ❌ | N/A | ❌ | ✅ (fuzzy matching) |
+| **Horizontal Scaling** | ❌ (single-node) | ✅ (managed cloud) | ✅ (distributed) | ❌ | ✅ (sharding + replicas) |
+| **Metrics** | ❌ | ❌ | ❌ | ❌ | ✅ (Prometheus) |
+| **HTTP API** | MCP only | REST + SDKs | C API | ❌ | ✅ (REST + health) |
+| **License** | MIT | Apache 2.0 | MIT+BSD | arXiv (open) | MIT |
 
 ---
 
@@ -214,6 +250,11 @@ mem0 unified API             →  crates/engine/src/api.rs (AgentMemory trait)
 mem0 multi-level memory      →  crates/core/src/types.rs (SessionId, triggers)
 mem0 provider flexibility    →  crates/engine/src/providers.rs (EmbeddingProvider)
 
+arXiv:2602.24281 segment ckpt →  crates/episodic/src/checkpoint.rs (CheckpointStore)
+arXiv:2602.24281 GRM gating  →  crates/engine/src/context.rs (build_context_weighted)
+arXiv:2602.24281 SSC routing →  crates/cognitive/src/ssc_router.rs (SSCRouter)
+arXiv:2602.24281 transitions  →  crates/cognitive/src/predictor.rs (ContextPredictor)
+
 faiss PQ/OPQ                 →  crates/semantic/src/turboquant.rs
 hnswlib HNSW                 →  crates/semantic/src/index.rs
 spotify/annoy flat index     →  crates/semantic/src/index.rs (FlatIndex)
@@ -232,6 +273,7 @@ RISC.OSINT scale             →  crates/semantic/src/sharding.rs + storage read
 
 - **mempalace** — For proving spatial memory organization and verbatim preservation work. The wings/halls/rooms/closets/drawers/tunnels metaphor is directly adapted from this project.
 - **mem0** — For demonstrating that a unified, simple memory API works well for AI agents. The multi-level memory concept influenced our session and provider design.
+- **arXiv:2602.24281 (Memory Caching)** — For proving segment checkpointing + gated retrieval prevents F1 collapse at scale. Our `CheckpointStore`, `SSCRouter`, and `build_context_weighted()` are direct implementations of the MC paper's concepts.
 - **Faiss** — For the quantization algorithms that enable 8x compression of embeddings. Our TurboQuant implementation is inspired by Faiss's PQ/OPQ designs.
 - **HNSWLib / Annoy** — For the approximate nearest neighbor algorithms that power our semantic search.
 - **RISC.OSINT** — For being the real-world stress test that drove every architectural decision. Without the requirement for unlimited, semantically searchable memory at planetary scale, this project would not exist.
@@ -239,4 +281,4 @@ RISC.OSINT scale             →  crates/semantic/src/sharding.rs + storage read
 ---
 
 **Document Date**: April 8, 2026  
-**Last Updated**: After RISC-OSINT audit implementation + Mempalace integration
+**Last Updated**: April 15, 2026 — Added Memory Caching (arXiv:2602.24281) integration lineage

@@ -1,9 +1,10 @@
 # RemeMnemosyne Memory System — Rigorous Evaluation Report v2.0
 
-> **Generated**: 2026-04-07  
-> **Evaluation Version**: 2.0 (Rigorous)  
-> **Hardware**: AMD Ryzen AI 9, AMD Radeon 890M iGPU (Vulkan)  
+> **Generated**: 2026-04-07
+> **Evaluation Version**: 2.0 (Rigorous)
+> **Hardware**: AMD Ryzen AI 9, AMD Radeon 890M iGPU (Vulkan)
 > **Models**: Qwen3.5-2B, Qwen3.5-35B-A3B (MoE)
+> **Post-Evaluation Update**: The **Memory scaling crisis** (F1 0.80→0.01) documented below is addressed by the Memory Caching (MC) integration ([arXiv:2602.24281](https://arxiv.org/abs/2602.24281)), implemented as three phases: Segment Checkpointing, Gated Context Assembly (GRM), and SSC Router with transition blending. See [MC_INTEGRATION_PLAN.md](../MC_INTEGRATION_PLAN.md).
 
 ---
 

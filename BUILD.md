@@ -6,13 +6,13 @@
 
 | Crate | Purpose | Source |
 |-------|---------|--------|
-| rememnemosyne-core | Types, traits | Custom |
+| rememnemosyne-core | Types, traits, math utilities | Custom |
 | rememnemosyne-semantic | Vector search | Custom TurboQuant + HNSW |
-| rememnemosyne-episodic | Chat episodes | Custom |
+| rememnemosyne-episodic | Chat episodes, Memory Caching checkpoints | Custom |
 | rememnemosyne-graph | Entity graph | petgraph (pure Rust) |
 | rememnemosyne-temporal | Timeline | Custom |
-| rememnemosyne-cognitive | Micro-embeddings | Custom |
-| rememnemosyne-engine | Unified API | Custom |
+| rememnemosyne-cognitive | Micro-embeddings, SSC router, ContextPredictor | Custom |
+| rememnemosyne-engine | Unified API, GRM context assembly | Custom |
 | sled | Embedded storage | Pure Rust |
 | tokio | Async runtime | Pure Rust |
 | serde | Serialization | Pure Rust |
@@ -71,11 +71,14 @@ cargo build --features persistence
 ### Running Tests (Pure Rust)
 
 ```bash
-# All tests - pure Rust
-cargo test
+# All tests - pure Rust (132 tests)
+cargo test --workspace
 
 # Specific crate
-cargo test -p mnemosyne-semantic
+cargo test -p rememnemosyne-episodic
+
+# MC integration tests
+cargo test -p rememnemosyne-engine --test mc_integration
 
 # With output
 cargo test -- --nocapture

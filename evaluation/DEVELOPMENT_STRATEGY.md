@@ -9,14 +9,14 @@
 ```
 RemeMnemosyne/
 ├── crates/
-│   ├── core/          # Types, traits, errors, config
+│   ├── core/          # Types, traits, errors, config, math utilities
 │   ├── semantic/      # TurboQuant, HNSW, vector operations
-│   ├── episodic/      # Conversation episodes, sessions
+│   ├── episodic/      # Conversation episodes, sessions, CheckpointStore (MC)
 │   ├── graph/         # Entity relationships (petgraph)
 │   ├── temporal/      # Timeline events, chronological access
-│   ├── cognitive/     # Micro-embeddings, intent detection
-│   ├── storage/       # sled (default) / RocksDB (optional)
-│   └── engine/        # Unified public API
+│   ├── cognitive/     # Micro-embeddings, intent detection, SSC router, ContextPredictor
+│   ├── storage/       # sled (default) / RocksDB (optional), archive v2
+│   └── engine/        # Unified public API, GRM context assembly
 ├── evaluation/        # Test results, improvement plan
 └── target/            # Build artifacts
 ```

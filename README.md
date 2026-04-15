@@ -13,6 +13,7 @@ Born from project needs such as "a54.space", an agentic development system,  and
 | **Spatial Memory Palace** | Wings → Halls → Rooms organization (spatial filtering concept from [mempalace](https://github.com/milla-jovovich/mempalace), fully re-engineered in Rust) |
 | **Verbatim Preservation** | Raw content never altered, summaries separate (pattern from mempalace, extended with `effective_content()` API) |
 | **L0-L4 Layered Context** | Progressive context loading (mempalace's L0-L3 extended to L0-L4 with `DeepSearch` layer) |
+| **Memory Caching (MC)** | Segment checkpointing + gated context assembly + SSC router ([arXiv:2602.24281](https://arxiv.org/abs/2602.24281), reimplemented in pure Rust) |
 | **Multi-Provider Embeddings** | OpenAI, Voyage, Cohere, Ollama, Candle/local, or hash fallback — **our unique development** |
 | **Typed Intelligence Memories** | Event, Narrative, RiskNode, Evidence, Simulation — **our unique development** for intelligence work |
 | **Temporal Validity** | Entity relationships expire; intelligence data has expiration dates (temporal graph concept from mempalace, re-implemented in Rust) |
@@ -29,6 +30,7 @@ Every major architectural decision traces to a specific project, with clear attr
 |----------------|-----------------|------------------|---------------------|
 | **[mempalace](https://github.com/milla-jovovich/mempalace)** (Python) | Spatial organization concept (wings/halls/rooms), verbatim drawers/closets pattern, L0-L3 context loading concept, tunnels concept, temporal graph concept, agent diaries concept | Re-engineered all concepts in Rust with type safety; extended L0-L3 → L0-L4; added `PalaceRouter` for programmatic routing; added `ValidityWindow` struct with invalidation/reactivation | `MemoryPalace` as a Rust data structure (mempalace uses files/SQLite); `PalaceQuery` API; `ContextStack` with token budgets; `EmbeddingProvider` integration; `ProviderRegistry` |
 | **[mem0](https://github.com/mem0ai/mem0)** (Python) | Unified memory interface concept (simple `add`/`search` API), multi-level memory concept (user/session/agent), decoupled memory layer from LLM context | Made it LLM-provider-agnostic (mem0 requires an external LLM); added spatial organization; added verbatim preservation; added typed intelligence memories | `AgentMemory` trait; `EmbeddingProvider` trait; `ReasoningProvider` trait; `AgentProvider` trait; `ProviderRegistry` |
+| **[MC (Memory Caching)](https://arxiv.org/abs/2602.24281)** (Paper) | Segment checkpointing concept, Gated Residual Memory (GRM) concept, Sparse Selective Caching (SSC) concept | Reimplemented all concepts from paper in pure Rust; checkpoint store with dual-trigger creation; GRM with per-memory contribution weights; SSC router with 70/30 cosine+transition blend | `CheckpointStore` with dual-trigger checkpointing; `SSCRouter` with transition blending; `ContextBuilderEngine::build_context_weighted()` with softmax normalization; `ContextPredictor` with intent transition matrix |
 | **[Faiss](https://github.com/facebookresearch/faiss)** (C++, Meta Research) | Product Quantization (PQ) algorithm concept, Optimized PQ (OPQ) concept, 8-bit quantization, sub-vector decomposition | Re-implemented PQ/OPQ in pure Rust; added Polar Quantization; added QJL transforms; integrated with HNSW index | `TurboQuantizer` (pure Rust, no BLAS/LAPACK); seamless integration with `SemanticMemoryStore`; automatic training pipeline |
 | **[HNSWLib](https://github.com/nmslib/hnswlib)** (C++) | HNSW approximate nearest neighbor algorithm concept | Re-implemented HNSW in pure Rust; added cosine similarity; added flat index fallback with auto-switching threshold | `HNSWIndex` (pure Rust, no external deps); `FlatIndex`; auto-switching logic based on data size |
 | **[sled](https://github.com/sled-db/sled)** (Rust) | Pure Rust embedded database concept, ACID transactions, prefix scanning | Added `StorageBackend` trait for swappable backends; added snapshot management; added archive compression | `SledStorage` wrapper; `SnapshotManager`; `ArchiveCatalog` with zstd compression |
@@ -44,14 +46,14 @@ Every major architectural decision traces to a specific project, with clear attr
 ```
 RemeMnemosyne/
 ├── crates/
-│   ├── core          # Types, traits, errors, MemoryPalace, EmbeddingProvider
+│   ├── core          # Types, traits, errors, MemoryPalace, EmbeddingProvider, math utilities
 │   ├── semantic      # TurboQuant, HNSW index, Flat index, Sharding
-│   ├── episodic      # Conversation episodes, sessions, decisions
+│   ├── episodic      # Conversation episodes, sessions, decisions, CheckpointStore (MC Phase 1)
 │   ├── graph         # Entity relationships, temporal validity, entity resolution
 │   ├── temporal      # Timeline events, time windows
-│   ├── cognitive     # Micro-embeddings, Candle ML embeddings, intent detection
-│   ├── storage       # sled (default), RocksDB (optional), backup, read replicas
-│   └── engine        # Unified API, context stack, providers, palace router
+│   ├── cognitive     # Micro-embeddings, intent detection, SSC router (MC Phase 3), ContextPredictor
+│   ├── storage       # sled (default), RocksDB (optional), backup, read replicas, archive v2
+│   └── engine        # Unified API, context stack, providers, palace router, GRM (MC Phase 2)
 ```
 
 ---
@@ -61,7 +63,7 @@ RemeMnemosyne/
 | Type | Purpose | Key Features |
 |------|---------|--------------|
 | **Semantic** | Vector search | TurboQuant (PQ/OPQ/Polar/QJL, from Faiss concept, re-engineered in Rust), HNSW index (from HNSWLib concept, re-engineered in Rust), 8x compression |
-| **Episodic** | Chat history | Sessions, episodes, exchanges, decisions, summaries |
+| **Episodic** | Chat history | Sessions, episodes, exchanges, decisions, summaries, **CheckpointStore** (MC segment checkpointing) |
 | **Graph** | Entity relationships | petgraph-based, temporal validity windows (from mempalace concept, re-engineered), fuzzy entity resolution (our unique development) |
 | **Temporal** | Events | Chronological storage, time windows, entity/memory linking |
 | **Typed Intelligence** | RISC.OSINT memories | **Our unique development**: EventMemory, NarrativeMemory, RiskNodeMemory, EvidenceMemory, SimulationMemory |
@@ -109,6 +111,37 @@ Text → EmbeddingProviderRouter → Arc<dyn EmbeddingProvider> → Vec<f32>
 ```
 
 See **[EMBEDDING_PIPELINE.md](EMBEDDING_PIPELINE.md)** for the complete embedding architecture.
+
+---
+
+## 🧠 Memory Caching (arXiv:2602.24281)
+
+The Memory Caching integration addresses three scaling problems identified in our evaluation:
+
+1. **F1 collapse at scale** — Recall drops from 0.80 to 0.01 at 10k memories
+2. **CognitiveEngine unimplemented** — Intent prefetching was stubbed, transition matrices were dead code
+3. **Binary context assembly** — All memories included with no graduated weighting
+
+### Three Phases
+
+| Phase | Component | Purpose |
+|-------|-----------|---------|
+| **Phase 1** | `CheckpointStore` | Segment checkpointing: dual-trigger (count + time) creation, coarse O(N) search before fine O(M) HNSW |
+| **Phase 2** | `build_context_weighted()` | Gated Residual Memory: per-memory γ weights via cosine similarity + softmax, weight-tiered rendering |
+| **Phase 3** | `SSCRouter` + `ContextPredictor` | Sparse Selective Caching: Top-k checkpoint routing with 70/30 cosine+transition blend; `CognitiveEngineImpl` |
+
+### Key Risk Mitigations
+
+| Risk | Mitigation |
+|------|------------|
+| Checkpoint granularity too bland | `ImportanceWeightedPool` default; `MaxPool` fallback |
+| Cold start (no checkpoints) | Falls through to bare HNSW (MC's N=1 baseline) |
+| Hard-gate recall loss | 1.3× soft multiplier, not hard filter |
+| Softmax dilution | Top-k only; remaining get 0.05 (not zero) |
+| Transition matrix noise | 70/30 blend only after >10 observations |
+| Checkpoint eviction zombies | `evict_and_return_ids()` + SSC deregistration |
+
+See **[MC_INTEGRATION_PLAN.md](MC_INTEGRATION_PLAN.md)** for the full architectural specification.
 
 ---
 
@@ -201,6 +234,9 @@ async fn main() -> anyhow::Result<()> {
 | `compaction` | Merge old related memories | No |
 | `auto-pruning` | Tiered importance-based deletion | No |
 | `persistence` | RocksDB backend (requires C++ toolchain) | No |
+| `mc-checkpoints` | Memory Caching segment checkpointing (Phase 1) | No |
+| `mc-gated-context` | Gated context assembly with contribution weights (Phase 2) | No |
+| `mc-ssc` | SSC router with transition blending (Phase 3) | No |
 
 ---
 
@@ -212,6 +248,9 @@ async fn main() -> anyhow::Result<()> {
 | Vector search (1K) | <3ms | ~2ms (HNSW) |
 | Memory store | <5ms | ~1ms |
 | Context assembly | <10ms | ~5ms |
+| Checkpoint creation | <1ms | ~0.05ms (in-memory) |
+| SSC routing (200 checkpoints) | <1ms | ~0.1ms (cosine scan) |
+| GRM weight computation | <1ms | ~0.2ms (softmax over top-k) |
 | Spatial retrieval | +34% over flat | Documented by [mempalace](https://github.com/milla-jovovich/mempalace) on their Python implementation |
 
 ---
@@ -246,6 +285,13 @@ async fn main() -> anyhow::Result<()> {
 - `EmbeddingProvider` trait — Pluggable interface for OpenAI, Voyage, Cohere, Ollama, custom — **our unique development**
 - `EmbeddingProviderRouter` — Manages active provider, handles async Send safety — **our unique development**
 
+### Memory Caching (MC) — arXiv:2602.24281
+- `CheckpointStore` — Dual-trigger (count + time) segment checkpointing — **our implementation of MC concept**
+- `SSCRouter` — Top-k checkpoint routing with 70/30 cosine+transition blend — **our implementation of MC concept**
+- `ContextBuilderEngine::build_context_weighted()` — Per-memory γ weights with softmax normalization — **our implementation of MC concept**
+- `ContextPredictor` — Intent transition matrix with cold-start guard (>10 observations) — **our implementation of MC concept**
+- `CognitiveEngineImpl` — Concrete `CognitiveEngine` trait implementation — **our unique development**
+
 ### Typed Intelligence Memories
 - `EventMemory` — Discrete events with severity, location, correlation — **our unique development for RISC.OSINT**
 - `NarrativeMemory` — Evolving storylines with evidence links — **our unique development for RISC.OSINT**
@@ -262,9 +308,10 @@ async fn main() -> anyhow::Result<()> {
 | [BUILD.md](BUILD.md) | Build instructions, dependencies, reference repos |
 | [ORIGINS_AND_INSPIRATIONS.md](ORIGINS_AND_INSPIRATIONS.md) | **Complete architectural lineage** — what came from where, what we modified, what's ours |
 | [EMBEDDING_PIPELINE.md](EMBEDDING_PIPELINE.md) | Embedding provider architecture and usage |
+| [MC_INTEGRATION_PLAN.md](MC_INTEGRATION_PLAN.md) | Memory Caching three-phase integration specification |
 | [RISC_OSINT_AUDIT_IMPLEMENTATION.md](RISC_OSINT_AUDIT_IMPLEMENTATION.md) | RISC-OSINT audit recommendations implemented |
 | [RISC_OSINT_ARCHITECTURE_REFLECTION.md](RISC_OSINT_ARCHITECTURE_REFLECTION.md) | Architecture analysis and next steps |
-| [ARCHITECTURE_SUMMARY.md](ARCHITECTURE_SUMMARY.md) | Mempalace integration summary |
+| [ARCHITECTURE_SUMMARY.md](ARCHITECTURE_SUMMARY.md) | Mempalace + MC integration summary |
 | [CI_FIX.md](CI_FIX.md) | CI workflow troubleshooting |
 
 ---

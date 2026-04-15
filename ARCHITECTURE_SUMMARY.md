@@ -170,6 +170,7 @@ pub struct ProviderRegistry {
 | **Verbatim Preservation** | ✅ Drawers/Closets | ❌ Summarized | ✅ Raw + summary |
 | **Layered Context** | ✅ L0-L3 | ❌ All-at-once | ✅ L0-L4 stack |
 | **Temporal Validity** | ✅ SQLite graph | ❌ No expiration | ✅ ValidityWindow |
+| **Memory Caching** | ❌ None | ❌ None | ✅ CheckpointStore + SSC router + GRM |
 | **Multi-Provider** | ❌ None | ❌ None | ✅ 3-layer providers |
 | **Typed Memories** | ❌ Generic | ✅ Typed | ✅ Typed + spatial |
 | **Vector Search** | ChromaDB | ✅ Custom | ✅ Custom + quantization |
@@ -183,11 +184,17 @@ pub struct ProviderRegistry {
 
 ## New Files Created (This Session)
 
+## New Files Created
+
 ### Core Architecture
 - `crates/core/src/palace.rs` (811 lines)
   - MemoryPalace, Wing, Hall, Room, Drawer, Closet, Tunnel
   - PalaceQuery, PalaceResult, PalaceStats
   - Complete spatial hierarchy
+
+- `crates/core/src/math.rs`
+  - Shared vector math utilities: `cosine_similarity`, `softmax`, `mean_pool`, `weighted_mean_pool`, `max_pool`
+  - Used by CheckpointStore, SSC router, and GRM gate computation
 
 - `crates/engine/src/palace_router.rs` (430 lines)
   - PalaceRouter with spatial routing
@@ -197,34 +204,108 @@ pub struct ProviderRegistry {
 
 - `crates/engine/src/context_stack.rs` (493 lines)
   - LayeredContextStack (L0-L4)
-  - ContextLayer with token budgets
-  - Progressive loading
+  - ContextLayer with token budgets and layer embeddings
+  - Progressive loading, auto-escalation via `should_escalate()`
+  - `load_checkpoint_context()` for MC segment summaries
   - Model-specific presets
 
+### Memory Caching (arXiv:2602.24281)
+- `crates/episodic/src/checkpoint.rs`
+  - `CheckpointStore` — dual-trigger (count + time) checkpoint creation
+  - `CheckpointConfig` — configurable thresholds, embedding methods, expansion
+  - `search_checkpoints()` — cosine similarity over checkpoint embeddings
+  - `evict_and_return_ids()` — FIFO eviction with SSC deregistration support
+
+- `crates/cognitive/src/ssc_router.rs`
+  - `SSCRouter` — Top-k checkpoint routing with `score_segments_with_transitions()`
+  - `SegmentProfile` — dual embeddings (mean + importance-weighted) per segment
+  - 70/30 cosine+transition blend via `route_with_transitions()`
+
+- `crates/cognitive/src/engine.rs`
+  - `CognitiveEngineImpl` — first concrete `CognitiveEngine` implementation
+
+- `crates/engine/tests/mc_integration.rs`
+  - 9-test integration suite covering all three MC phases
+
 ### Modified Files
-- `crates/core/src/types.rs` (+120 lines)
-  - Added `raw_content`, `is_summary`, `source_ref`, `palace_location`
-  - Added verbatim preservation methods
-  
-- `crates/graph/src/relationship.rs` (+160 lines)
-  - Added `ValidityWindow` struct
-  - Added temporal validity methods
-  
+- `crates/core/src/types.rs`
+  - Added `MemoryType::Checkpoint`, `EventType::Checkpoint`
+  - Added `MemoryCheckpoint` with `mean_embedding` field (Bug 3 fix)
+  - Added `CheckpointEmbeddingMethod` enum
+  - Added `contribution_weights` on `ContextBundle`
+  - Added `add_memory_weighted()`, fixed `merge()` to preserve contribution_weights
+
 - `crates/core/src/lib.rs`
-  - Export palace module
-  
-- `crates/engine/src/lib.rs`
-  - Export palace_router, context_stack
+  - Export `palace` module, `math` module
+
+- `crates/engine/src/router.rs`
+  - `MemoryRouterConfig` with checkpoint and SSC config
+  - `MemoryRouter.checkpoint_aware_search()` with 1.3× boost
+  - `MemoryRouter.store()` triggers dual-checkpoint creation + SSC registration + eviction deregistration
+  - `MemoryResponse.query_embedding` to avoid re-embedding
+  - `collect_recent_memories_for_checkpoint()` using timestamp-ordered retrieval (Bug 6 fix)
+
+- `crates/engine/src/context.rs`
+  - `build_context_weighted()` with GRM gate computation
+  - Top-k softmax normalization, 60/40 blended contribution weights
+  - Weight-tiered formatting in all 4 strategies
+
+- `crates/engine/src/context_stack.rs`
+  - `layer_embedding: Option<Vec<f32>>` on `ContextLayer`
+  - `should_escalate()` for query-layer similarity
+  - `load_checkpoint_context()` for MC segment summaries
+
+- `crates/cognitive/src/predictor.rs`
+  - Activated `transition_matrix` with `record_transition()`
+  - `get_transition_prob()` — public for SSC router blending
+  - `last_intent_state` — public for SSC router blending
+  - `transition_capacity()` — public for cold-start guard
+  - 70/30 embedding+transition blend in `predict()` after >10 observations
+
+- `crates/cognitive/src/prefetcher.rs`
+  - Implemented `intent_based_prefetch()`
+  - `last_query_embedding` for similarity computation
+
+- `crates/cognitive/src/micro_embed.rs`
+  - `extract_entities_ner()` stub
+
+- `crates/storage/src/archive.rs`
+  - v2 archive format (u64 length prefix)
+  - Backward-compatible v1→v2 migration
+  - Format versioning in `ArchiveCatalog`
+
+- `crates/semantic/src/sharding.rs`
+  - `MemoryType::Checkpoint` in match arms
+
+- `crates/graph/src/entity_resolution.rs`
+  - `EntityType` import fix
+
+- `crates/temporal/src/timeline.rs`
+  - NaN-safe `partial_cmp` (Bug C5 fix)
+
+- `crates/engine/src/palace_router.rs`
+  - Non-exhaustive `MemoryType` match (Bug C1 fix)
+
+- `crates/engine/src/metrics.rs`
+  - Prometheus 0.23 API rewrite
+  - `MemoryTypeLabel` with all 11 variants
+
+- `crates/engine/src/http_server.rs`
+  - Axum 0.7 API rewrite
 
 ---
 
 ## Test Coverage
 
-**88 tests pass** across all crates:
-- `rememnemosyne-core`: 24 tests (+12 new palace tests)
-- `rememnemosyne-engine`: 22 tests (+7 new context_stack tests)
-- `rememnemosyne-graph`: 6 tests (+1 relationship validity)
-- Other crates: 36 tests (unchanged)
+**132 tests pass** across all crates:
+- `rememnemosyne-core`: 16 tests
+- `rememnemosyne-episodic`: 9 tests (7 checkpoint tests)
+- `rememnemosyne-cognitive`: 2 tests (SSC router + predictor)
+- `rememnemosyne-engine`: 29 tests (9 MC integration tests)
+- `rememnemosyne-semantic`: 6 tests
+- `rememnemosyne-graph`: 6 tests
+- `rememnemosyne-storage`: 5 tests
+- Other crates: 59 tests
 
 ---
 
@@ -318,7 +399,7 @@ rel.invalidate("Source discredited", "analyst_42");
 
 ---
 
-## Next Steps (Remaining Phases)
+## Next Steps
 
 ### Phase B.3: Agent Diary System
 - Per-agent memory tracks (separate from main memory)
@@ -336,8 +417,13 @@ rel.invalidate("Source discredited", "analyst_42");
 - Typed memory store integration
 - End-to-end RISC-OSINT integration tests
 
+### MC Hardening (Recommended)
+- CheckpointStore persistence (currently in-memory only — all MC state lost on restart)
+- Feature flag gating (`mc-checkpoints`, `mc-gated-context`, `mc-ssc` exist in Cargo.toml but gate zero code)
+- Integration benchmark at 10k+ memories to validate F1 improvement claim
+
 ---
 
-**Date**: April 8, 2026  
-**Status**: Core architecture complete, 88 tests pass  
-**Next**: Agent diaries, compression, provider implementations
+**Date**: April 15, 2026
+**Status**: Core architecture + MC integration complete, 132 tests pass, all critical/high/medium bugs fixed
+**Next**: Agent diaries, compression, provider implementations, MC persistence
