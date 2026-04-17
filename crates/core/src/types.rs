@@ -39,6 +39,8 @@ pub struct MemoryInput {
     pub tier: Option<u8>,
     /// Session ID
     pub session_id: Option<SessionId>,
+    /// External source ID for deduplication (e.g. opencode message ID)
+    pub source_id: Option<String>,
 }
 
 impl MemoryInput {
@@ -57,6 +59,7 @@ impl MemoryInput {
             source_events: Vec::new(),
             tier: None,
             session_id: None,
+            source_id: None,
         }
     }
 
@@ -107,6 +110,11 @@ impl MemoryInput {
 
     pub fn with_session(mut self, session_id: SessionId) -> Self {
         self.session_id = Some(session_id);
+        self
+    }
+
+    pub fn with_source_id(mut self, source_id: impl Into<String>) -> Self {
+        self.source_id = Some(source_id.into());
         self
     }
 }
@@ -273,6 +281,9 @@ pub struct MemoryArtifact {
     pub agent_id: Option<String>,
     /// Tier classification (T1/T1.5/T2/T3)
     pub tier: Option<u8>,
+    /// External source ID for deduplication (e.g. opencode message ID).
+    /// Prevents duplicate ingestion when re-running an ingest pipeline.
+    pub source_id: Option<String>,
 }
 
 /// Spatial location in the Memory Palace
@@ -333,6 +344,7 @@ impl MemoryArtifact {
             source_events: Vec::new(),
             agent_id: None,
             tier: None,
+            source_id: None,
         }
     }
 
@@ -358,6 +370,12 @@ impl MemoryArtifact {
 
     pub fn with_metadata(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         self.metadata.insert(key.into(), value);
+        self
+    }
+
+    /// Set external source ID for deduplication (e.g. opencode message ID)
+    pub fn with_source_id(mut self, source_id: impl Into<String>) -> Self {
+        self.source_id = Some(source_id.into());
         self
     }
 

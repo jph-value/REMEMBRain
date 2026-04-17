@@ -1,4 +1,5 @@
 use rememnemosyne_core::*;
+use chrono::{DateTime, Utc};
 use rememnemosyne_episodic::{EpisodicMemoryConfig, EpisodicMemoryStore};
 use rememnemosyne_graph::{GraphMemoryConfig, GraphMemoryStore};
 use rememnemosyne_semantic::{SemanticMemoryConfig, SemanticMemoryStore};
@@ -16,6 +17,8 @@ use std::sync::Arc;
 
 use crate::context::{ContextBuilderConfig, ContextBuilderEngine};
 use crate::router::{MemoryRouter, MemoryRouterConfig};
+
+const SNAPSHOT_FORMAT_VERSION: u64 = 1;
 
 /// Main engine configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,7 +47,7 @@ impl Default for RememnosyneConfig {
             temporal: TemporalMemoryConfig::default(),
             router: MemoryRouterConfig::default(),
             context: ContextBuilderConfig::default(),
-            enable_persistence: true,
+            enable_persistence: false,
             #[cfg(feature = "persistence")]
             storage_config: StorageConfig::default(),
             #[cfg(not(feature = "persistence"))]
@@ -227,6 +230,9 @@ impl RememnosyneEngine {
         if let Some(sid) = input.session_id {
             artifact.session_id = Some(sid);
         }
+        if let Some(ref sid) = input.source_id {
+            artifact.source_id = Some(sid.clone());
+        }
 
         let id = self.router.store(artifact.clone()).await?;
 
@@ -313,6 +319,9 @@ impl RememnosyneEngine {
                 if let Some(sid) = input.session_id {
                     artifact.session_id = Some(sid);
                 }
+                if let Some(ref sid) = input.source_id {
+                    artifact.source_id = Some(sid.clone());
+                }
                 artifact
             })
             .collect();
@@ -350,13 +359,17 @@ impl RememnosyneEngine {
 
     /// Generate embedding for text
     async fn generate_embedding(&self, text: &str) -> Vec<f32> {
-        // Use the router's embedding provider
+        let dims = self.router.embedding_dimensions();
         self.router
             .generate_embedding(text)
             .await
             .unwrap_or_else(|e| {
-                tracing::warn!("Embedding generation failed: {}", e);
-                vec![0.0; self.router.embedding_dimensions()]
+                tracing::warn!(
+                    error = %e,
+                    dimensions = dims,
+                    "Embedding generation failed — storing zero vector (memory invisible to search)"
+                );
+                vec![0.0; dims]
             })
     }
 
@@ -471,6 +484,117 @@ impl RememnosyneEngine {
             storage.flush()?;
         }
         Ok(())
+    }
+}
+
+/// Serializable snapshot of all in-memory store contents.
+/// Enables persistence without requiring sled or RocksDB.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemorySnapshot {
+    pub format_version: u64,
+    pub created_at: DateTime<Utc>,
+    pub semantic_artifacts: Vec<MemoryArtifact>,
+    pub source_ids: Vec<String>,
+}
+
+impl RememnosyneEngine {
+    /// Save all in-memory store contents to a binary file.
+    ///
+    /// This provides durability without sled/RocksDB — useful for plugin
+    /// integrations (e.g. opencode) that need memory to survive restarts
+    /// but don't want a full database dependency.
+    ///
+    /// The file format is bincode-serialized `MemorySnapshot` with a u64
+    /// length prefix for streaming deserialization.
+    pub async fn save_to_file(&self, path: &std::path::Path) -> Result<()> {
+        let snapshot = self.capture_snapshot().await;
+        let data = bincode::serialize(&snapshot)
+            .map_err(|e| MemoryError::Serialization(e.to_string()))?;
+
+        let mut file = std::fs::File::create(path)
+            .map_err(MemoryError::Io)?;
+        use std::io::Write;
+        file.write_all(&data)
+            .map_err(MemoryError::Io)?;
+
+        tracing::info!(
+            path = %path.display(),
+            memories = snapshot.semantic_artifacts.len(),
+            "Memory snapshot saved"
+        );
+        Ok(())
+    }
+
+    /// Load in-memory store contents from a binary file previously
+    /// created by `save_to_file()`.
+    ///
+    /// Re-ingests all artifacts into the running engine, regenerating
+    /// embeddings as needed. Existing memories are preserved (merge, not replace).
+    pub async fn load_from_file(&self, path: &std::path::Path) -> Result<usize> {
+        let data = std::fs::read(path)
+            .map_err(MemoryError::Io)?;
+
+        let snapshot: MemorySnapshot = bincode::deserialize(&data)
+            .map_err(|e| MemoryError::Serialization(e.to_string()))?;
+
+        if snapshot.format_version != SNAPSHOT_FORMAT_VERSION {
+            return Err(MemoryError::Serialization(format!(
+                "Snapshot format version mismatch: expected {}, got {}",
+                SNAPSHOT_FORMAT_VERSION, snapshot.format_version
+            )));
+        }
+
+        let existing_source_ids: std::collections::HashSet<String> = {
+            let mut set = std::collections::HashSet::new();
+            for artifact in self.router.semantic.list_all().await {
+                if let Some(ref sid) = artifact.source_id {
+                    set.insert(sid.clone());
+                }
+            }
+            set
+        };
+
+        let mut loaded = 0usize;
+        let mut skipped = 0usize;
+
+        for artifact in snapshot.semantic_artifacts {
+            if let Some(ref sid) = artifact.source_id {
+                if existing_source_ids.contains(sid) {
+                    skipped += 1;
+                    continue;
+                }
+            }
+            match self.router.store(artifact).await {
+                Ok(_) => loaded += 1,
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to restore artifact from snapshot");
+                }
+            }
+        }
+
+        tracing::info!(
+            path = %path.display(),
+            loaded,
+            skipped,
+            "Memory snapshot loaded"
+        );
+        Ok(loaded)
+    }
+
+    /// Capture a serializable snapshot of current in-memory state.
+    async fn capture_snapshot(&self) -> MemorySnapshot {
+        let artifacts = self.router.semantic.list_all().await;
+        let source_ids: Vec<String> = artifacts
+            .iter()
+            .filter_map(|a| a.source_id.clone())
+            .collect();
+
+        MemorySnapshot {
+            format_version: SNAPSHOT_FORMAT_VERSION,
+            created_at: Utc::now(),
+            semantic_artifacts: artifacts,
+            source_ids,
+        }
     }
 }
 

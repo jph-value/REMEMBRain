@@ -85,7 +85,11 @@ impl AgentMemory for RememnosyneEngine {
         if errors.is_empty() {
             Ok(true)
         } else {
-            tracing::warn!(memory_id = %id, errors = ?errors, "forget() had partial failures");
+            tracing::warn!(
+                memory_id = %id,
+                errors = ?errors,
+                "forget() partial failures — graph/temporal deletions attempted but not verified"
+            );
             Err(MemoryError::Storage(format!(
                 "Partial delete failures: {}",
                 errors.join(", ")

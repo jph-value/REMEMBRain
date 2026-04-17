@@ -10,6 +10,7 @@ members = [
     "crates/storage",
     "crates/engine",
     "crates/clone-tracker",
+    "crates/ingest-opencode",
 ]
 
 [workspace.package]
@@ -78,3 +79,6 @@ tower-http = { version = "0.5", features = ["cors"] }
 
 # Config parsing (optional, behind feature flag)
 toml = { version = "0.8" }
+
+# SQLite (optional, for opencode ingest)
+rusqlite = { version = "0.31", features = ["bundled"] }
