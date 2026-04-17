@@ -444,7 +444,10 @@ impl SemanticMemoryStore {
     /// List all stored memory artifacts.
     /// Used by `RememnosyneEngine::save_to_file()` to serialize in-memory state.
     pub async fn list_all(&self) -> Vec<MemoryArtifact> {
-        self.memories.iter().map(|entry| entry.value().clone()).collect()
+        self.memories
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 }
 

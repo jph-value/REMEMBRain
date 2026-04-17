@@ -51,9 +51,7 @@ impl OpencodeIngestor {
         let ids = if self.config.dry_run {
             Vec::new()
         } else {
-            self.engine
-                .remember_batch(all_items)
-                .await?
+            self.engine.remember_batch(all_items).await?
         };
 
         let stats = IngestStats {

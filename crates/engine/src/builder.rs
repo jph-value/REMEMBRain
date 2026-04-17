@@ -1,5 +1,5 @@
-use rememnemosyne_core::*;
 use chrono::{DateTime, Utc};
+use rememnemosyne_core::*;
 use rememnemosyne_episodic::{EpisodicMemoryConfig, EpisodicMemoryStore};
 use rememnemosyne_graph::{GraphMemoryConfig, GraphMemoryStore};
 use rememnemosyne_semantic::{SemanticMemoryConfig, SemanticMemoryStore};
@@ -508,14 +508,12 @@ impl RememnosyneEngine {
     /// length prefix for streaming deserialization.
     pub async fn save_to_file(&self, path: &std::path::Path) -> Result<()> {
         let snapshot = self.capture_snapshot().await;
-        let data = bincode::serialize(&snapshot)
-            .map_err(|e| MemoryError::Serialization(e.to_string()))?;
+        let data =
+            bincode::serialize(&snapshot).map_err(|e| MemoryError::Serialization(e.to_string()))?;
 
-        let mut file = std::fs::File::create(path)
-            .map_err(MemoryError::Io)?;
+        let mut file = std::fs::File::create(path).map_err(MemoryError::Io)?;
         use std::io::Write;
-        file.write_all(&data)
-            .map_err(MemoryError::Io)?;
+        file.write_all(&data).map_err(MemoryError::Io)?;
 
         tracing::info!(
             path = %path.display(),
@@ -531,11 +529,10 @@ impl RememnosyneEngine {
     /// Re-ingests all artifacts into the running engine, regenerating
     /// embeddings as needed. Existing memories are preserved (merge, not replace).
     pub async fn load_from_file(&self, path: &std::path::Path) -> Result<usize> {
-        let data = std::fs::read(path)
-            .map_err(MemoryError::Io)?;
+        let data = std::fs::read(path).map_err(MemoryError::Io)?;
 
-        let snapshot: MemorySnapshot = bincode::deserialize(&data)
-            .map_err(|e| MemoryError::Serialization(e.to_string()))?;
+        let snapshot: MemorySnapshot =
+            bincode::deserialize(&data).map_err(|e| MemoryError::Serialization(e.to_string()))?;
 
         if snapshot.format_version != SNAPSHOT_FORMAT_VERSION {
             return Err(MemoryError::Serialization(format!(

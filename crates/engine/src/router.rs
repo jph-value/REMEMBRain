@@ -275,7 +275,11 @@ impl MemoryRouter {
         let routed = {
             let ssc_router = self.ssc_router.read();
             match transition_probs {
-                Some(ref tp) => ssc_router.route_with_transitions(query_embedding, &all_checkpoint_ids, Some(tp)),
+                Some(ref tp) => ssc_router.route_with_transitions(
+                    query_embedding,
+                    &all_checkpoint_ids,
+                    Some(tp),
+                ),
                 None => ssc_router.route_with_scores(query_embedding, &all_checkpoint_ids),
             }
         };
@@ -339,7 +343,8 @@ impl MemoryRouter {
                 let recent = self.collect_recent_memories_for_checkpoint(threshold).await;
                 if !recent.is_empty() {
                     let checkpoint_store = self.checkpoint_store.write();
-                    if let Ok((checkpoint, evicted_ids)) = checkpoint_store.create_checkpoint(&recent, session_id)
+                    if let Ok((checkpoint, evicted_ids)) =
+                        checkpoint_store.create_checkpoint(&recent, session_id)
                     {
                         self.ssc_router.write().register_checkpoint(&checkpoint);
                         // Deregister evicted checkpoints from the SSC router
